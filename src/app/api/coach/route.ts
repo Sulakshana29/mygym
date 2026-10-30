@@ -81,41 +81,58 @@ ${validExerciseIds}
 - Injuries / Preferences: ${coachReq.injuriesOrNotes || 'None'}
 - Special User Request: ${coachReq.userPrompt || 'Build the most optimal evidence-based split.'}`;
 
-    // 5. Invoke Gemini 2.5 Flash via @google/genai
+    // 5. Invoke Gemini with model fallback cascade
+    const candidateModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.8-flash'];
+    let rawResponseText: string | null = null;
+
     try {
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: userMessage,
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: 'application/json',
-          temperature: 0.2, // Low temperature for high adherence to exercise IDs & rules
-        },
-      });
 
-      const responseText = response.text?.trim() || '{}';
-      const parsedJson = JSON.parse(responseText);
-
-      // Validate LLM output against Zod schema
-      const validatedOutput = CoachResponseSchema.safeParse(parsedJson);
-
-      if (validatedOutput.success) {
-        return NextResponse.json({
-          ...validatedOutput.data,
-          isAIGenerated: true,
-        });
+      for (const modelName of candidateModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: userMessage,
+            config: {
+              systemInstruction: systemPrompt,
+              responseMimeType: 'application/json',
+              temperature: 0.2,
+            },
+          });
+          if (response.text) {
+            rawResponseText = response.text.trim();
+            break;
+          }
+        } catch (candidateErr: any) {
+          console.warn(`Model ${modelName} returned error, trying next candidate:`, candidateErr?.message);
+        }
       }
 
-      console.warn('Gemini output failed schema validation, falling back to rules engine:', validatedOutput.error);
+      if (rawResponseText) {
+        try {
+          const parsedJson = JSON.parse(rawResponseText);
+          const validatedOutput = CoachResponseSchema.safeParse(parsedJson);
+
+          if (validatedOutput.success) {
+            return NextResponse.json({
+              ...validatedOutput.data,
+              isAIGenerated: true,
+            });
+          }
+          console.warn('Gemini output schema validation warning, falling back to rules engine');
+        } catch (jsonErr) {
+          console.warn('Failed to parse Gemini output as JSON:', jsonErr);
+        }
+      }
+
       const fallback = generateRulesBasedSplit(coachReq);
       return NextResponse.json({
         ...fallback,
         isAIGenerated: false,
-        note: 'Fallback applied: AI output was adjusted to ensure strict exercise ID validity.',
+        note: 'Generated via evidence-based rules engine (LLM high demand or schema fallback).',
       });
-    } catch (llmError) {
-      console.error('Gemini API call failed, using rules engine fallback:', llmError);
+    } catch (llmError: any) {
+      console.error('Gemini API call failed, using rules engine fallback:', llmError?.message);
       const fallback = generateRulesBasedSplit(coachReq);
       return NextResponse.json({
         ...fallback,
