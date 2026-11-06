@@ -29,5 +29,12 @@ export interface StorageAdapter {
     exerciseId: string
   ): Promise<{ session: WorkoutSession; sets: LoggedSet[] } | undefined>;
 
+  getLastSetsForPlannedExercise(
+    plannedExerciseId: string,
+    exerciseId: string
+  ): Promise<LoggedSet[] | undefined>;
+
+  getAllTimeMax1RM(exerciseId: string): Promise<number>;
+
   resetToDefaults(): Promise<void>;
 }

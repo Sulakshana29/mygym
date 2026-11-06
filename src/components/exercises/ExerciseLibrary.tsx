@@ -142,7 +142,7 @@ export function ExerciseLibrary({ exercises, onExerciseAdded }: ExerciseLibraryP
               className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-all ${
                 selectedEquipment === eq.id
                   ? 'bg-zinc-700 text-white font-semibold'
-                  : 'bg-zinc-950 border border-zinc-850 text-zinc-500 hover:text-zinc-300'
+                  : 'bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-zinc-300'
               }`}
             >
               {eq.label}
@@ -167,12 +167,12 @@ export function ExerciseLibrary({ exercises, onExerciseAdded }: ExerciseLibraryP
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <h4 className="text-sm font-bold text-white">{ex.name}</h4>
                   {ex.isCustom && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
                       CUSTOM
                     </span>
                   )}
                   <span
-                    className={`text-[9px] font-semibold px-1.5 py-0.2 rounded border ${
+                    className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${
                       ex.category === 'compound'
                         ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
                         : 'bg-zinc-800 text-zinc-400 border-zinc-700'

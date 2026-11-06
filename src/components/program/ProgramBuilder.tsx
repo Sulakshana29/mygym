@@ -17,6 +17,7 @@ import {
   X,
   Dumbbell,
   ArrowRight,
+  Pencil,
 } from 'lucide-react';
 import { Exercise, MuscleGroup, PlannedExercise, Program, ProgramDay } from '@/types';
 import { getStorage } from '@/lib/storage';
@@ -60,6 +61,55 @@ export function ProgramBuilder({
   const [newRestSec, setNewRestSec] = useState(90);
   const [newRpe, setNewRpe] = useState(8);
   const [newNotes, setNewNotes] = useState('');
+
+  // Edit existing planned exercise state
+  const [editingPlanned, setEditingPlanned] = useState<PlannedExercise | null>(null);
+  const [editSets, setEditSets] = useState(3);
+  const [editRepMin, setEditRepMin] = useState(8);
+  const [editRepMax, setEditRepMax] = useState(12);
+  const [editRestSec, setEditRestSec] = useState(90);
+  const [editRpe, setEditRpe] = useState(8);
+  const [editNotes, setEditNotes] = useState('');
+
+  const handleOpenEdit = (planned: PlannedExercise) => {
+    setEditingPlanned(planned);
+    setEditSets(planned.sets);
+    setEditRepMin(planned.repMin);
+    setEditRepMax(planned.repMax);
+    setEditRestSec(planned.restSec);
+    setEditRpe(planned.targetRpe ?? 8);
+    setEditNotes(planned.notes ?? '');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlanned) return;
+
+    const updatedPlanned: PlannedExercise = {
+      ...editingPlanned,
+      sets: editSets,
+      repMin: editRepMin,
+      repMax: editRepMax,
+      restSec: editRestSec,
+      targetRpe: editRpe,
+      notes: editNotes.trim() || undefined,
+    };
+
+    const updatedDays = program.days.map((d) => {
+      if (d.dayOfWeek === selectedDayIndex) {
+        return {
+          ...d,
+          exercises: d.exercises.map((item) =>
+            item.id === editingPlanned.id ? updatedPlanned : item
+          ),
+        };
+      }
+      return d;
+    });
+
+    await handleUpdateProgram({ ...program, days: updatedDays });
+    setEditingPlanned(null);
+  };
 
   // Find day in program
   const currentDay: ProgramDay = program.days.find(
@@ -340,7 +390,7 @@ export function ProgramBuilder({
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <h4 className="text-sm font-bold text-zinc-100">{ex.name}</h4>
                           <span
-                            className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${
+                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
                               ex.category === 'compound'
                                 ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
                                 : 'bg-zinc-800 text-zinc-400 border-zinc-700'
@@ -374,7 +424,7 @@ export function ProgramBuilder({
                       </div>
                     </div>
 
-                    {/* Action buttons: Move up/down & Delete */}
+                    {/* Action buttons: Move up/down, Edit & Delete */}
                     <div className="flex items-center gap-1 shrink-0">
                       <div className="flex flex-col">
                         <button
@@ -393,8 +443,15 @@ export function ProgramBuilder({
                         </button>
                       </div>
                       <button
+                        onClick={() => handleOpenEdit(planned)}
+                        className="p-1.5 text-zinc-500 hover:text-emerald-400 transition-colors ml-1"
+                        title="Edit sets, reps, and rest"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => handleDeleteExercise(planned.id)}
-                        className="p-1.5 text-zinc-500 hover:text-rose-400 transition-colors ml-1"
+                        className="p-1.5 text-zinc-500 hover:text-rose-400 transition-colors"
                         title="Remove exercise from day"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -629,6 +686,133 @@ export function ProgramBuilder({
                   className="flex-1 py-2 bg-emerald-500 disabled:opacity-40 text-zinc-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20"
                 >
                   Add to Routine
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Exercise Prescription Modal */}
+      {editingPlanned && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto p-4 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+              <div>
+                <h3 className="text-sm font-bold text-white">Edit Prescription</h3>
+                <span className="text-xs text-emerald-400 font-semibold block">
+                  {getExercise(editingPlanned.exerciseId)?.name}
+                </span>
+              </div>
+              <button
+                onClick={() => setEditingPlanned(null)}
+                className="text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                    Sets
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={editSets}
+                    onChange={(e) => setEditSets(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                    Rest (seconds)
+                  </label>
+                  <input
+                    type="number"
+                    step={15}
+                    min={30}
+                    max={300}
+                    value={editRestSec}
+                    onChange={(e) => setEditRestSec(parseInt(e.target.value) || 60)}
+                    className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                    Min Reps
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={editRepMin}
+                    onChange={(e) => setEditRepMin(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                    Max Reps (Double-Progression Goal)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={editRepMax}
+                    onChange={(e) => setEditRepMax(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                  Target RPE (Optional)
+                </label>
+                <input
+                  type="number"
+                  step={0.5}
+                  min={5}
+                  max={10}
+                  value={editRpe}
+                  onChange={(e) => setEditRpe(parseFloat(e.target.value) || 8)}
+                  className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                  Coach Notes / Instructions (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Pause 1s on chest, focus on stretch"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-600"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPlanned(null)}
+                  className="flex-1 py-2 bg-zinc-800 text-zinc-300 font-semibold text-xs rounded-xl hover:bg-zinc-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2 bg-emerald-500 text-zinc-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>

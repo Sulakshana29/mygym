@@ -72,6 +72,7 @@ export interface Program {
 export interface LoggedSet {
   id: string;
   exerciseId: string;
+  plannedExerciseId?: string;
   setNo: number;
   weight: number; // Raw weight strictly stored in KG
   reps: number;

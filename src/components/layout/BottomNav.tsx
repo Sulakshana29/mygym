@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Dumbbell, CalendarRange, BookOpen, User } from 'lucide-react';
+import { Dumbbell, CalendarRange, TrendingUp, BookOpen, User } from 'lucide-react';
 
-export type TabType = 'workout' | 'program' | 'exercises' | 'profile';
+export type TabType = 'workout' | 'program' | 'progress' | 'exercises' | 'profile';
 
 interface BottomNavProps {
   activeTab: TabType;
@@ -14,6 +14,7 @@ export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
   const tabs = [
     { id: 'workout' as TabType, label: 'Today', icon: Dumbbell },
     { id: 'program' as TabType, label: 'Program', icon: CalendarRange },
+    { id: 'progress' as TabType, label: 'Progress', icon: TrendingUp },
     { id: 'exercises' as TabType, label: 'Exercises', icon: BookOpen },
     { id: 'profile' as TabType, label: 'Profile', icon: User },
   ];

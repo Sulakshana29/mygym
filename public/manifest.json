@@ -1,0 +1,19 @@
+{
+  "name": "MyGym — Personal Workout Tracker",
+  "short_name": "MyGym",
+  "description": "Evidence-based workout tracker featuring double-progression, volume landmarks, and Gemini AI Coach.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#10b981",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

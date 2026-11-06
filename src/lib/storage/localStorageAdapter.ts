@@ -185,7 +185,6 @@ export class LocalStorageAdapter implements StorageAdapter {
     exerciseId: string
   ): Promise<{ session: WorkoutSession; sets: LoggedSet[] } | undefined> {
     const sessions = await this.getWorkoutSessions();
-    // Sort descending by date / startTime
     const sorted = [...sessions].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
@@ -197,6 +196,48 @@ export class LocalStorageAdapter implements StorageAdapter {
       }
     }
     return undefined;
+  }
+
+  async getLastSetsForPlannedExercise(
+    plannedExerciseId: string,
+    exerciseId: string
+  ): Promise<LoggedSet[] | undefined> {
+    const sessions = await this.getWorkoutSessions();
+    const sorted = [...sessions].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    for (const session of sorted) {
+      // 1. Try exact plannedExerciseId match (prevents mixing 5x5 top sets with 2x10 back-offs)
+      const exactMatch = session.sets.filter((s) => s.plannedExerciseId === plannedExerciseId);
+      if (exactMatch.length > 0) {
+        return exactMatch;
+      }
+      // 2. Fallback to exerciseId match
+      const exerciseMatch = session.sets.filter((s) => s.exerciseId === exerciseId);
+      if (exerciseMatch.length > 0) {
+        return exerciseMatch;
+      }
+    }
+    return undefined;
+  }
+
+  async getAllTimeMax1RM(exerciseId: string): Promise<number> {
+    const sessions = await this.getWorkoutSessions();
+    let max1RM = 0;
+
+    for (const session of sessions) {
+      for (const s of session.sets) {
+        if (s.exerciseId === exerciseId && !s.isWarmup && s.weight > 0 && s.reps > 0) {
+          const epley = s.reps === 1 ? s.weight : s.weight * (1 + s.reps / 30);
+          if (epley > max1RM) {
+            max1RM = epley;
+          }
+        }
+      }
+    }
+
+    return Math.round(max1RM * 10) / 10;
   }
 
   async resetToDefaults(): Promise<void> {

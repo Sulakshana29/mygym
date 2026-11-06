@@ -81,8 +81,8 @@ ${validExerciseIds}
 - Injuries / Preferences: ${coachReq.injuriesOrNotes || 'None'}
 - Special User Request: ${coachReq.userPrompt || 'Build the most optimal evidence-based split.'}`;
 
-    // 5. Invoke Gemini with model fallback cascade
-    const candidateModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.8-flash'];
+    // 5. Invoke Gemini with high-speed models and strict 6-second timeout race
+    const candidateModels = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash'];
     let rawResponseText: string | null = null;
 
     try {
@@ -90,7 +90,7 @@ ${validExerciseIds}
 
       for (const modelName of candidateModels) {
         try {
-          const response = await ai.models.generateContent({
+          const generatePromise = ai.models.generateContent({
             model: modelName,
             contents: userMessage,
             config: {
@@ -99,12 +99,18 @@ ${validExerciseIds}
               temperature: 0.2,
             },
           });
-          if (response.text) {
+
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), 6000)
+          );
+
+          const response: any = await Promise.race([generatePromise, timeoutPromise]);
+          if (response && response.text) {
             rawResponseText = response.text.trim();
             break;
           }
         } catch (candidateErr: any) {
-          console.warn(`Model ${modelName} returned error, trying next candidate:`, candidateErr?.message);
+          console.warn(`Model ${modelName} skipped (${candidateErr?.message || candidateErr}), trying next candidate.`);
         }
       }
 

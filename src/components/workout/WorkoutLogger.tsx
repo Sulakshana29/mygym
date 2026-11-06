@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Flame,
   Check,
@@ -17,6 +17,8 @@ import {
   Save,
   CheckCircle2,
   Calendar,
+  History,
+  X,
 } from 'lucide-react';
 import {
   Exercise,
@@ -35,6 +37,7 @@ import {
   calculateWorkingVolumeLoad,
 } from '@/lib/utils/progression';
 import { formatWeight, toDisplayWeight, fromDisplayWeight } from '@/lib/utils/units';
+import { getLocalDateString } from '@/lib/utils/date';
 
 interface WorkoutLoggerProps {
   program: Program;
@@ -60,16 +63,17 @@ export function WorkoutLogger({
   // Active workout session sets state: Map of plannedExerciseId -> LoggedSet[]
   const [workoutSets, setWorkoutSets] = useState<Record<string, LoggedSet[]>>({});
   const [completedSetIds, setCompletedSetIds] = useState<Set<string>>(new Set());
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'error' | 'info' | 'success' } | null>(null);
+  const [isDraftRestored, setIsDraftRestored] = useState<boolean>(false);
 
   // Rest Timer state
   const [timerSecondsLeft, setTimerSecondsLeft] = useState<number | null>(null);
   const [timerTotal, setTimerTotal] = useState<number>(90);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
 
-  // Past session lookup for double progression & hints
-  const [lastSessionsMap, setLastSessionsMap] = useState<
-    Record<string, { session: WorkoutSession; sets: LoggedSet[] }>
-  >({});
+  // Past session lookup for double progression & hints (scoped to plannedExerciseId)
+  const [lastSetsMap, setLastSetsMap] = useState<Record<string, LoggedSet[]>>({});
+  const [allTimeMax1RMMap, setAllTimeMax1RMMap] = useState<Record<string, number>>({});
   const [isFinishing, setIsFinishing] = useState(false);
   const [finishSummary, setFinishSummary] = useState<{
     totalVolumeKg: number;
@@ -77,19 +81,135 @@ export function WorkoutLogger({
     prsHit: number;
   } | null>(null);
 
-  // Initialize sets for the active day's planned exercises
+  // Guard to prevent overwriting saved drafts during initial load
+  const isInitializedRef = useRef(false);
+
+  // Initialize or restore sets for the active day's planned exercises
   useEffect(() => {
+    if (!currentDay || currentDay.isRestDay) {
+      isInitializedRef.current = false;
+      return;
+    }
+
+    isInitializedRef.current = false;
+    const storage = getStorage();
+    const draftKey = `mygym_draft_${currentDay.id}`;
+
+    const loadDayData = async () => {
+      // 1. Fetch previous session sets and all-time 1RM baselines
+      const scopedSetsMap: Record<string, LoggedSet[]> = {};
+      const max1RMMap: Record<string, number> = {};
+
+      for (const planned of currentDay.exercises) {
+        const lastSets = await storage.getLastSetsForPlannedExercise(planned.id, planned.exerciseId);
+        if (lastSets && lastSets.length > 0) {
+          scopedSetsMap[planned.id] = lastSets;
+        }
+        const max1RM = await storage.getAllTimeMax1RM(planned.exerciseId);
+        if (max1RM) {
+          max1RMMap[planned.exerciseId] = max1RM;
+        }
+      }
+      setLastSetsMap(scopedSetsMap);
+      setAllTimeMax1RMMap(max1RMMap);
+
+      // 2. Check for an existing in-progress draft
+      let restoredFromDraft = false;
+      try {
+        const savedDraft = localStorage.getItem(draftKey);
+        if (savedDraft) {
+          const parsed = JSON.parse(savedDraft);
+          if (parsed.sets && Object.keys(parsed.sets).length > 0) {
+            setWorkoutSets(parsed.sets);
+            setCompletedSetIds(new Set(parsed.completedSetIds || []));
+            setIsDraftRestored(true);
+            restoredFromDraft = true;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to restore workout draft:', err);
+      }
+
+      // 3. If no draft, initialize fresh sets with previous weights pre-filled
+      if (!restoredFromDraft) {
+        setIsDraftRestored(false);
+        const initialSetsMap: Record<string, LoggedSet[]> = {};
+        currentDay.exercises.forEach((planned) => {
+          const previousSets = scopedSetsMap[planned.id] || [];
+          const sets: LoggedSet[] = [];
+
+          for (let i = 1; i <= planned.sets; i++) {
+            const lastSetForSlot = previousSets[i - 1] || previousSets[previousSets.length - 1];
+            const prefillWeight = lastSetForSlot ? lastSetForSlot.weight : 0;
+
+            sets.push({
+              id: `set-${planned.id}-${i}-${Date.now()}`,
+              plannedExerciseId: planned.id,
+              exerciseId: planned.exerciseId,
+              setNo: i,
+              weight: prefillWeight,
+              reps: planned.repMin,
+              isWarmup: false,
+              isPR: false,
+            });
+          }
+          initialSetsMap[planned.id] = sets;
+        });
+        setWorkoutSets(initialSetsMap);
+        setCompletedSetIds(new Set());
+      }
+
+      // Mark initialized so auto-saver can safely persist subsequent changes
+      setTimeout(() => {
+        isInitializedRef.current = true;
+      }, 100);
+    };
+
+    loadDayData();
+  }, [currentDay?.id]);
+
+  // Auto-persist workout draft to localStorage
+  useEffect(() => {
+    if (!isInitializedRef.current || !currentDay || currentDay.isRestDay) return;
+
+    const draftKey = `mygym_draft_${currentDay.id}`;
+    const draftPayload = {
+      sets: workoutSets,
+      completedSetIds: Array.from(completedSetIds),
+      updatedAt: Date.now(),
+    };
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draftPayload));
+    } catch (err) {
+      console.error('Failed to save workout draft:', err);
+    }
+  }, [workoutSets, completedSetIds, currentDay?.id]);
+
+  // Discard draft and reset to default
+  const handleResetDraft = () => {
     if (!currentDay || currentDay.isRestDay) return;
+    const draftKey = `mygym_draft_${currentDay.id}`;
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      // ignore
+    }
 
     const initialSetsMap: Record<string, LoggedSet[]> = {};
     currentDay.exercises.forEach((planned) => {
+      const previousSets = lastSetsMap[planned.id] || [];
       const sets: LoggedSet[] = [];
+
       for (let i = 1; i <= planned.sets; i++) {
+        const lastSetForSlot = previousSets[i - 1] || previousSets[previousSets.length - 1];
+        const prefillWeight = lastSetForSlot ? lastSetForSlot.weight : 0;
+
         sets.push({
           id: `set-${planned.id}-${i}-${Date.now()}`,
+          plannedExerciseId: planned.id,
           exerciseId: planned.exerciseId,
           setNo: i,
-          weight: 0,
+          weight: prefillWeight,
           reps: planned.repMin,
           isWarmup: false,
           isPR: false,
@@ -97,23 +217,13 @@ export function WorkoutLogger({
       }
       initialSetsMap[planned.id] = sets;
     });
+
     setWorkoutSets(initialSetsMap);
-
-    // Fetch previous sessions for double progression
-    const fetchLastSessions = async () => {
-      const storage = getStorage();
-      const map: Record<string, { session: WorkoutSession; sets: LoggedSet[] }> = {};
-      for (const planned of currentDay.exercises) {
-        const last = await storage.getLastSessionForExercise(planned.exerciseId);
-        if (last) {
-          map[planned.exerciseId] = last;
-        }
-      }
-      setLastSessionsMap(map);
-    };
-
-    fetchLastSessions();
-  }, [currentDay?.id]);
+    setCompletedSetIds(new Set());
+    setIsDraftRestored(false);
+    setToastMessage({ text: 'Workout draft reset to default prescription.', type: 'info' });
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   // Timer interval
   useEffect(() => {
@@ -124,7 +234,6 @@ export function WorkoutLogger({
       }, 1000);
     } else if (timerSecondsLeft === 0) {
       setIsTimerRunning(false);
-      // Play brief audible tone or vibrate if supported
       if (typeof window !== 'undefined' && 'navigator' in window && 'vibrate' in navigator) {
         try {
           navigator.vibrate([200, 100, 200]);
@@ -146,6 +255,15 @@ export function WorkoutLogger({
 
   const getExercise = (id: string) => exercises.find((e) => e.id === id);
 
+  // Checks whether a given set qualifies as a Personal Record (PR)
+  const isSetPR = (set: LoggedSet): boolean => {
+    if (set.isWarmup || set.weight <= 0 || set.reps <= 0) return false;
+    const baselineMax = allTimeMax1RMMap[set.exerciseId] || 0;
+    if (baselineMax <= 0) return false;
+    const est1RM = set.reps === 1 ? set.weight : set.weight * (1 + set.reps / 30);
+    return est1RM > baselineMax;
+  };
+
   const handleUpdateSet = (
     plannedId: string,
     setId: string,
@@ -156,7 +274,9 @@ export function WorkoutLogger({
       const existing = prev[plannedId] || [];
       const updated = existing.map((s) => {
         if (s.id === setId) {
-          return { ...s, [field]: value };
+          const newSet = { ...s, [field]: value };
+          newSet.isPR = isSetPR(newSet);
+          return newSet;
         }
         return s;
       });
@@ -175,7 +295,6 @@ export function WorkoutLogger({
       nextCompleted.delete(set.id);
     } else {
       nextCompleted.add(set.id);
-      // Auto-start rest timer
       startRestTimer(planned.restSec);
     }
     setCompletedSetIds(nextCompleted);
@@ -188,6 +307,7 @@ export function WorkoutLogger({
       const lastWeight = existing[existing.length - 1]?.weight || 0;
       const newSet: LoggedSet = {
         id: `set-${planned.id}-${nextNo}-${Date.now()}`,
+        plannedExerciseId: planned.id,
         exerciseId: planned.exerciseId,
         setNo: nextNo,
         weight: lastWeight,
@@ -195,6 +315,7 @@ export function WorkoutLogger({
         isWarmup: false,
         isPR: false,
       };
+      newSet.isPR = isSetPR(newSet);
       return { ...prev, [planned.id]: [...existing, newSet] };
     });
   };
@@ -216,8 +337,8 @@ export function WorkoutLogger({
 
   const handleFinishWorkout = async () => {
     const storage = getStorage();
-    // Gather all sets
     const allSets: LoggedSet[] = [];
+
     Object.values(workoutSets).forEach((sets) => {
       sets.forEach((s) => {
         if (completedSetIds.has(s.id) && s.reps > 0) {
@@ -227,7 +348,11 @@ export function WorkoutLogger({
     });
 
     if (allSets.length === 0) {
-      alert('Please complete at least one set before saving!');
+      setToastMessage({
+        text: 'Please complete and check off at least one set before saving!',
+        type: 'error',
+      });
+      setTimeout(() => setToastMessage(null), 4000);
       return;
     }
 
@@ -239,7 +364,7 @@ export function WorkoutLogger({
       id: `session-${Date.now()}`,
       programId: program.id,
       programDayId: currentDay.id,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(), // Accurate local timezone YYYY-MM-DD
       startTime: new Date().toISOString(),
       endTime: new Date().toISOString(),
       sets: allSets,
@@ -247,6 +372,13 @@ export function WorkoutLogger({
     };
 
     await storage.saveWorkoutSession(session);
+
+    // Clear saved draft on completion
+    try {
+      localStorage.removeItem(`mygym_draft_${currentDay.id}`);
+    } catch {
+      // ignore
+    }
 
     setFinishSummary({
       totalVolumeKg,
@@ -258,6 +390,25 @@ export function WorkoutLogger({
 
   return (
     <div className="space-y-4 pb-24">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div
+          className={`p-3 rounded-2xl flex items-center justify-between text-xs font-semibold shadow-lg transition-all animate-in fade-in slide-in-from-top-2 ${
+            toastMessage.type === 'error'
+              ? 'bg-rose-500/15 border border-rose-500/40 text-rose-300'
+              : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{toastMessage.text}</span>
+          </div>
+          <button onClick={() => setToastMessage(null)} className="text-zinc-400 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Day Selector Tabs */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
         {program.days.map((day) => {
@@ -283,11 +434,23 @@ export function WorkoutLogger({
       <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 p-4 rounded-2xl border border-zinc-800/80 shadow-lg relative overflow-hidden">
         <div className="flex items-start justify-between">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
                 {currentDay.isRestDay ? 'Rest & Rebuild' : 'Live Workout'}
               </span>
               <span className="text-xs text-zinc-400">{program.name}</span>
+              {isDraftRestored && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
+                  Draft Restored
+                  <button
+                    onClick={handleResetDraft}
+                    className="hover:underline text-indigo-200 ml-1 font-bold"
+                    title="Reset to fresh prescribed sets"
+                  >
+                    Reset
+                  </button>
+                </span>
+              )}
             </div>
             <h2 className="text-lg font-bold text-white mt-1.5">{currentDay.name}</h2>
             {currentDay.subtitle && (
@@ -383,12 +546,12 @@ export function WorkoutLogger({
             if (!ex) return null;
 
             const sets = workoutSets[planned.id] || [];
-            const lastSessionData = lastSessionsMap[planned.exerciseId];
-            const doubleProg = lastSessionData
+            const lastSets = lastSetsMap[planned.id];
+            const doubleProg = lastSets
               ? checkDoubleProgression(
                   ex,
                   planned,
-                  lastSessionData.sets,
+                  lastSets,
                   preferredUnit
                 )
               : null;
@@ -404,7 +567,7 @@ export function WorkoutLogger({
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="text-sm font-bold text-white">{ex.name}</h4>
                       <span
-                        className={`text-[9px] font-semibold px-1.5 py-0.2 rounded border ${
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${
                           ex.category === 'compound'
                             ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
                             : 'bg-zinc-800 text-zinc-400 border-zinc-700'
@@ -413,14 +576,34 @@ export function WorkoutLogger({
                         {ex.category}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-zinc-400 mt-0.5">
+                    <div className="flex items-center gap-2 text-xs text-zinc-400 mt-0.5 flex-wrap">
                       <span className="text-emerald-400 font-semibold">
                         Target: {planned.sets} sets × {planned.repMin}
                         {planned.repMin !== planned.repMax ? `–${planned.repMax}` : ''} reps
                       </span>
                       <span>•</span>
                       <span>{planned.restSec}s rest</span>
+                      {allTimeMax1RMMap[planned.exerciseId] && (
+                        <>
+                          <span>•</span>
+                          <span className="text-zinc-500">
+                            PR: {formatWeight(allTimeMax1RMMap[planned.exerciseId], preferredUnit, true)} (1RM)
+                          </span>
+                        </>
+                      )}
                     </div>
+                    {/* Previous session reference summary */}
+                    {lastSets && lastSets.length > 0 && (
+                      <div className="flex items-center gap-1 text-[11px] text-zinc-400 mt-1">
+                        <History className="w-3 h-3 text-zinc-500" />
+                        <span>
+                          Last time:{' '}
+                          {lastSets
+                            .map((s) => `${toDisplayWeight(s.weight, preferredUnit)}×${s.reps}`)
+                            .join(', ')}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -437,7 +620,7 @@ export function WorkoutLogger({
                   </div>
                 )}
 
-                {doubleProg && !doubleProg.earned && lastSessionData && (
+                {doubleProg && !doubleProg.earned && lastSets && (
                   <div className="bg-zinc-950/70 border border-zinc-800/80 px-2.5 py-1.5 rounded-xl text-[11px] text-zinc-400 flex items-center gap-1.5">
                     <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
                     <span>{doubleProg.message}</span>
@@ -456,7 +639,7 @@ export function WorkoutLogger({
                     <span className="col-span-2 text-right">Log</span>
                   </div>
 
-                  {sets.map((set, sIdx) => {
+                  {sets.map((set) => {
                     const isCompleted = completedSetIds.has(set.id);
                     const displayWeight = toDisplayWeight(set.weight, preferredUnit);
 
@@ -471,7 +654,7 @@ export function WorkoutLogger({
                             : 'bg-zinc-950 border-zinc-800/80'
                         }`}
                       >
-                        {/* Set Index */}
+                        {/* Set Index + PR Indicator */}
                         <div className="col-span-2 flex items-center gap-1">
                           <span
                             className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold ${
@@ -482,9 +665,17 @@ export function WorkoutLogger({
                           >
                             {set.setNo}
                           </span>
+                          {set.isPR && (
+                            <span
+                              title="New Estimated 1RM Record!"
+                              className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold"
+                            >
+                              PR
+                            </span>
+                          )}
                         </div>
 
-                        {/* Weight Input (Display Unit converted to raw KG) */}
+                        {/* Weight Input */}
                         <div className="col-span-3">
                           <input
                             type="number"

@@ -8,6 +8,7 @@ import { BottomNav, TabType } from '@/components/layout/BottomNav';
 import { ProgramBuilder } from '@/components/program/ProgramBuilder';
 import { WorkoutLogger } from '@/components/workout/WorkoutLogger';
 import { ExerciseLibrary } from '@/components/exercises/ExerciseLibrary';
+import { ProgressDashboard } from '@/components/progress/ProgressDashboard';
 import { ProfileSettings } from '@/components/profile/ProfileSettings';
 import { CoachModal } from '@/components/coach/CoachModal';
 
@@ -103,6 +104,13 @@ export default function Home() {
             exercises={exercises}
             onProgramUpdated={(updated) => setActiveProgram(updated)}
             onProgramSwitched={handleProgramSwitched}
+          />
+        )}
+
+        {activeTab === 'progress' && (
+          <ProgressDashboard
+            exercises={exercises}
+            preferredUnit={profile.preferredUnit}
           />
         )}
 

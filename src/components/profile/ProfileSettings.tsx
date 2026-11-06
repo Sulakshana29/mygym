@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { User, Scale, Flame, RefreshCw, ShieldCheck, Dumbbell, Award } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { User, Scale, Flame, RefreshCw, ShieldCheck, Dumbbell, Award, Download, Upload, CheckCircle2 } from 'lucide-react';
 import { Unit, UserProfile } from '@/types';
 import { getStorage } from '@/lib/storage';
 
@@ -17,6 +17,8 @@ export function ProfileSettings({
   onResetComplete,
 }: ProfileSettingsProps) {
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUnitChange = async (unit: Unit) => {
     const updated = { ...profile, preferredUnit: unit };
@@ -30,6 +32,57 @@ export function ProfileSettings({
     await storage.resetToDefaults();
     setIsResetConfirmOpen(false);
     onResetComplete();
+  };
+
+  const handleExportBackup = async () => {
+    const storage = getStorage();
+    const [userProfile, programs, exercises, sessions] = await Promise.all([
+      storage.getUserProfile(),
+      storage.getPrograms(),
+      storage.getExercises(),
+      storage.getWorkoutSessions(),
+    ]);
+
+    const backupPayload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      userProfile,
+      programs,
+      exercises,
+      sessions,
+    };
+
+    const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mygym-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setBackupStatus('Backup exported!');
+    setTimeout(() => setBackupStatus(null), 3000);
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.userProfile) localStorage.setItem('mygym_user_profile', JSON.stringify(data.userProfile));
+        if (data.programs) localStorage.setItem('mygym_programs', JSON.stringify(data.programs));
+        if (data.exercises) localStorage.setItem('mygym_exercises', JSON.stringify(data.exercises));
+        if (data.sessions) localStorage.setItem('mygym_sessions', JSON.stringify(data.sessions));
+        setBackupStatus('Backup restored successfully!');
+        setTimeout(() => setBackupStatus(null), 3000);
+        onResetComplete();
+      } catch {
+        setBackupStatus('Invalid backup file.');
+      }
+    };
+    reader.readAsText(file);
   };
 
   return (
@@ -126,6 +179,51 @@ export function ProfileSettings({
               Sets flagged as <strong className="text-amber-300 font-mono">WARM</strong> are strictly excluded from your weekly hard-set volume landmark calculations and 1RM estimations.
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Data Backup & Portability Section */}
+      <div className="bg-zinc-900/90 border border-zinc-800/80 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+              Data Backup & Sync
+            </h3>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              Export your mobile workouts or restore from a JSON backup
+            </p>
+          </div>
+          {backupStatus && (
+            <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {backupStatus}
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={handleExportBackup}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-zinc-950 hover:bg-zinc-800 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export JSON
+          </button>
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-xl text-xs font-semibold transition-colors"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Import JSON
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImportBackup}
+            className="hidden"
+          />
         </div>
       </div>
 

@@ -5,6 +5,11 @@ export const metadata: Metadata = {
   title: "MyGym — Personal Workout Tracker & Winter Arc Split",
   description:
     "Evidence-based workout tracker featuring double-progression badges, AI split recommendations, and 80+ exercise library.",
+  manifest: "/manifest.json",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
