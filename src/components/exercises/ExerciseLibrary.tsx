@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Search, Plus, Filter, Dumbbell, Sparkles, X, Check } from 'lucide-react';
+import { Search, Plus, Filter, Dumbbell, Sparkles, X, Check, Layers, Video } from 'lucide-react';
 import { Exercise, EquipmentType, MuscleGroup, ExerciseCategory } from '@/types';
 import { getStorage } from '@/lib/storage';
+import { MuscleDiagram } from '../diagrams/MuscleDiagram';
 
 interface ExerciseLibraryProps {
   exercises: Exercise[];
@@ -41,6 +42,7 @@ export function ExerciseLibrary({ exercises, onExerciseAdded }: ExerciseLibraryP
   const [selectedMuscle, setSelectedMuscle] = useState('all');
   const [selectedEquipment, setSelectedEquipment] = useState('all');
   const [isAddCustomOpen, setIsAddCustomOpen] = useState(false);
+  const [selectedExDetails, setSelectedExDetails] = useState<Exercise | null>(null);
 
   // Custom exercise form
   const [customName, setCustomName] = useState('');
@@ -50,11 +52,16 @@ export function ExerciseLibrary({ exercises, onExerciseAdded }: ExerciseLibraryP
   const [customNotes, setCustomNotes] = useState('');
 
   const filtered = exercises.filter((ex) => {
+    const query = searchQuery.trim().toLowerCase();
     const matchSearch =
-      ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ex.primaryMuscle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ex.equipment.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchMuscle = selectedMuscle === 'all' || ex.primaryMuscle === selectedMuscle;
+      !query ||
+      ex.name.toLowerCase().includes(query) ||
+      ex.primaryMuscle.toLowerCase().includes(query) ||
+      ex.secondaryMuscles.some((m) => m.toLowerCase().includes(query)) ||
+      ex.equipment.toLowerCase().includes(query);
+
+    // If actively searching with text, search across all muscles automatically
+    const matchMuscle = query ? true : (selectedMuscle === 'all' || ex.primaryMuscle === selectedMuscle);
     const matchEquipment =
       selectedEquipment === 'all' || ex.equipment === selectedEquipment;
     return matchSearch && matchMuscle && matchEquipment;
@@ -122,11 +129,10 @@ export function ExerciseLibrary({ exercises, onExerciseAdded }: ExerciseLibraryP
             <button
               key={m.id}
               onClick={() => setSelectedMuscle(m.id)}
-              className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all ${
-                selectedMuscle === m.id
+              className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all ${selectedMuscle === m.id
                   ? 'bg-emerald-500 text-zinc-950 font-bold shadow-sm'
                   : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
-              }`}
+                }`}
             >
               {m.label}
             </button>
@@ -139,11 +145,10 @@ export function ExerciseLibrary({ exercises, onExerciseAdded }: ExerciseLibraryP
             <button
               key={eq.id}
               onClick={() => setSelectedEquipment(eq.id)}
-              className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-all ${
-                selectedEquipment === eq.id
+              className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-all ${selectedEquipment === eq.id
                   ? 'bg-zinc-700 text-white font-semibold'
                   : 'bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-zinc-300'
-              }`}
+                }`}
             >
               {eq.label}
             </button>
@@ -160,52 +165,135 @@ export function ExerciseLibrary({ exercises, onExerciseAdded }: ExerciseLibraryP
         {filtered.map((ex) => (
           <div
             key={ex.id}
-            className="bg-zinc-900/90 border border-zinc-800/80 p-3.5 rounded-2xl hover:border-zinc-700 transition-all shadow-sm space-y-1.5"
+            onClick={() => setSelectedExDetails(ex)}
+            className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl hover:border-emerald-500/50 cursor-pointer transition-all shadow-sm space-y-2 group"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <h4 className="text-sm font-bold text-white">{ex.name}</h4>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-base font-extrabold text-white group-hover:text-emerald-400 transition-colors">
+                    {ex.name}
+                  </h4>
                   {ex.isCustom && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
                       CUSTOM
                     </span>
                   )}
                   <span
-                    className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${
-                      ex.category === 'compound'
-                        ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${ex.category === 'compound'
+                        ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/25'
                         : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                    }`}
+                      }`}
                   >
                     {ex.category}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 mt-1 text-xs text-zinc-400 capitalize">
-                  <span className="text-emerald-400 font-semibold">{ex.primaryMuscle}</span>
+                <div className="flex items-center gap-2 mt-1.5 text-xs text-zinc-300 font-medium capitalize">
+                  <span className="text-emerald-400 font-bold">{ex.primaryMuscle}</span>
                   <span>•</span>
                   <span>{ex.equipment}</span>
                   {ex.secondaryMuscles.length > 0 && (
                     <>
                       <span>•</span>
-                      <span className="text-zinc-500 truncate max-w-[150px]">
+                      <span className="text-zinc-400 truncate max-w-[180px]">
                         +{ex.secondaryMuscles.join(', ')}
                       </span>
                     </>
                   )}
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedExDetails(ex);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800 group-hover:bg-emerald-500/20 text-zinc-300 group-hover:text-emerald-300 text-xs font-bold border border-zinc-700/60 transition-colors shrink-0"
+              >
+                <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Anatomy</span>
+              </button>
             </div>
 
             {ex.notes && (
-              <p className="text-xs text-zinc-400 bg-zinc-950/60 p-2 rounded-xl border border-zinc-800/60">
+              <p className="text-xs text-zinc-300 bg-zinc-950/70 p-2.5 rounded-xl border border-zinc-800/80 leading-relaxed">
                 💡 {ex.notes}
               </p>
             )}
           </div>
         ))}
       </div>
+
+      {/* Exercise Detail Anatomy Modal */}
+      {selectedExDetails && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  Movement Anatomy
+                </span>
+                <h3 className="text-lg font-black text-white mt-0.5">
+                  {selectedExDetails.name}
+                </h3>
+                <span className="text-xs text-emerald-400 font-bold capitalize">
+                  {selectedExDetails.category} • {selectedExDetails.equipment}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedExDetails(null)}
+                className="p-1.5 text-zinc-400 hover:text-white rounded-xl bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Visual Muscle Diagram */}
+            <div className="bg-zinc-950/90 border border-zinc-800 p-4 rounded-2xl flex flex-col items-center">
+              <MuscleDiagram
+                primaryMuscles={[selectedExDetails.primaryMuscle]}
+                secondaryMuscles={selectedExDetails.secondaryMuscles}
+                size="md"
+                showLabels={true}
+              />
+            </div>
+
+            {selectedExDetails.notes && (
+              <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl space-y-1">
+                <span className="text-[11px] font-bold text-zinc-400 uppercase">
+                  Execution Cue
+                </span>
+                <p className="text-xs text-zinc-300 leading-relaxed">
+                  {selectedExDetails.notes}
+                </p>
+              </div>
+            )}
+
+            <div className="pt-1 flex gap-2">
+              <a
+                href={`https://www.youtube.com/results?search_query=${encodeURIComponent(
+                  'how to do ' + selectedExDetails.name + ' form cues'
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 py-3 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Video className="w-4 h-4 text-rose-400" />
+                Watch Form Video
+              </a>
+              <button
+                type="button"
+                onClick={() => setSelectedExDetails(null)}
+                className="py-3 px-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Custom Exercise Modal */}
       {isAddCustomOpen && (

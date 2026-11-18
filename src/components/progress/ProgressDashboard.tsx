@@ -12,8 +12,10 @@ import {
   BarChart2,
   Trash2,
   Info,
+  Activity,
+  Layers,
 } from 'lucide-react';
-import { Exercise, Unit, WorkoutSession, LoggedSet } from '@/types';
+import { Exercise, Unit, WorkoutSession, LoggedSet, MuscleGroup } from '@/types';
 import { getStorage } from '@/lib/storage';
 import { formatWeight, toDisplayWeight } from '@/lib/utils/units';
 import {
@@ -21,6 +23,8 @@ import {
   calculateWorkingVolumeLoad,
   calculateEstimated1RM,
 } from '@/lib/utils/progression';
+import { ProgressChart, DataPoint1RM, VolumePoint } from './ProgressChart';
+import { MuscleDiagram } from '../diagrams/MuscleDiagram';
 
 interface ProgressDashboardProps {
   exercises: Exercise[];
@@ -84,6 +88,13 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
       quads: 0,
       hamstrings: 0,
       arms: 0,
+      glutes: 0,
+      calves: 0,
+      abs: 0,
+      biceps: 0,
+      triceps: 0,
+      forearms: 0,
+      traps: 0,
     };
 
     last7DaysSessions.forEach((session) => {
@@ -93,17 +104,36 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
         if (!ex) return;
 
         const muscle = ex.primaryMuscle.toLowerCase();
-        if (muscle.includes('chest')) volume.chest += 1;
-        else if (muscle.includes('back') || muscle.includes('lat')) volume.back += 1;
-        else if (muscle.includes('shoulder') || muscle.includes('delt')) volume.shoulders += 1;
-        else if (muscle.includes('quad')) volume.quads += 1;
-        else if (muscle.includes('hamstring') || muscle.includes('glute')) volume.hamstrings += 1;
-        else if (muscle.includes('bicep') || muscle.includes('tricep') || muscle.includes('arm')) volume.arms += 1;
+        if (volume[muscle] !== undefined) {
+          volume[muscle] += 1;
+        }
+
+        // Also aggregate arms
+        if (muscle.includes('bicep') || muscle.includes('tricep') || muscle.includes('arm')) {
+          volume.arms += 1;
+        }
       });
     });
 
     return volume;
   }, [last7DaysSessions, exerciseMap]);
+
+  // Determine active muscle groups for visual muscle diagram (last 7 days)
+  const activeStimulatedMuscles = React.useMemo(() => {
+    const primary: MuscleGroup[] = [];
+    const secondary: MuscleGroup[] = [];
+
+    Object.entries(weeklyMuscleVolume).forEach(([mKey, count]) => {
+      const m = mKey as MuscleGroup;
+      if (count >= 8) {
+        primary.push(m);
+      } else if (count > 0) {
+        secondary.push(m);
+      }
+    });
+
+    return { primary, secondary };
+  }, [weeklyMuscleVolume]);
 
   // Overall career stats
   const careerStats = React.useMemo(() => {
@@ -125,25 +155,26 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
     };
   }, [sessions]);
 
-  // Selected exercise progression history
-  const selectedExerciseHistory = React.useMemo(() => {
+  // Selected exercise progression history for chart
+  const data1RMPoints: DataPoint1RM[] = React.useMemo(() => {
     if (!selectedExerciseId) return [];
 
-    const history: {
-      date: string;
-      sessionName?: string;
-      max1RM: number;
-      bestSet: LoggedSet;
-    }[] = [];
+    const points: DataPoint1RM[] = [];
 
-    sessions.forEach((s) => {
+    // Reverse sessions so it's chronologically oldest to newest for graphing
+    const chronological = [...sessions].reverse();
+
+    chronological.forEach((s) => {
       const exerciseSets = s.sets.filter(
-        (set) => set.exerciseId === selectedExerciseId && !set.isWarmup && set.weight > 0 && set.reps > 0
+        (set) =>
+          set.exerciseId === selectedExerciseId &&
+          !set.isWarmup &&
+          set.weight > 0 &&
+          set.reps > 0
       );
       if (exerciseSets.length === 0) return;
 
       const est1RM = calculateEstimated1RM(exerciseSets);
-      // Find set with best 1RM
       let bestSet = exerciseSets[0];
       let bestEst = 0;
       exerciseSets.forEach((st) => {
@@ -154,92 +185,175 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
         }
       });
 
-      history.push({
+      points.push({
         date: s.date,
         sessionName: s.notes?.split('-')[0]?.trim(),
         max1RM: est1RM,
-        bestSet,
+        weight: bestSet.weight,
+        reps: bestSet.reps,
       });
     });
 
-    return history;
+    return points;
   }, [sessions, selectedExerciseId]);
+
+  // Volume points for tonnage bar chart
+  const volumeData: VolumePoint[] = React.useMemo(() => {
+    return [...sessions]
+      .reverse()
+      .map((s) => ({
+        label: s.date,
+        volumeKg: calculateWorkingVolumeLoad(s.sets),
+        hardSets: calculateHardSetVolume(s.sets),
+      }));
+  }, [sessions]);
 
   const selectedExercise = exerciseMap.get(selectedExerciseId);
 
   return (
-    <div className="space-y-4 pb-24 animate-in fade-in">
+    <div className="space-y-4 pb-28 animate-in fade-in">
       {/* Title Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+          <h2 className="text-xl font-black text-white flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-emerald-400" />
-            Progress & Volume
+            Performance & Growth
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Evidence-based hypertrophy landmarks and 1RM progression
+            Progress curves, anatomical volume maps & hypertrophy landmarks
           </p>
         </div>
       </div>
 
       {/* Career Overview Stats */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-zinc-900 border border-zinc-800/80 p-3 rounded-2xl">
-          <span className="text-[10px] font-semibold text-zinc-500 uppercase block">
+      <div className="grid grid-cols-3 gap-2.5">
+        <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-2xl shadow-sm">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
             Workouts
           </span>
-          <span className="text-lg font-black text-white mt-0.5 block">
+          <span className="text-xl sm:text-2xl font-black text-white mt-1 block font-mono">
             {careerStats.workoutCount}
           </span>
-          <span className="text-[10px] text-zinc-500">Sessions</span>
+          <span className="text-[10px] text-zinc-500 font-medium">Logged</span>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800/80 p-3 rounded-2xl">
-          <span className="text-[10px] font-semibold text-zinc-500 uppercase block">
+        <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-2xl shadow-sm">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
             Hard Sets
           </span>
-          <span className="text-lg font-black text-emerald-400 mt-0.5 block">
+          <span className="text-xl sm:text-2xl font-black text-emerald-400 mt-1 block font-mono">
             {careerStats.totalHardSets}
           </span>
-          <span className="text-[10px] text-zinc-500">All-time</span>
+          <span className="text-[10px] text-zinc-500 font-medium">Working sets</span>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800/80 p-3 rounded-2xl">
-          <span className="text-[10px] font-semibold text-zinc-500 uppercase block">
-            Total Tonnage
+        <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-2xl shadow-sm">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
+            Tonnage
           </span>
-          <span className="text-lg font-black text-amber-400 mt-0.5 block">
+          <span className="text-xl sm:text-2xl font-black text-amber-400 mt-1 block font-mono">
             {formatWeight(careerStats.totalVolumeKg, preferredUnit, true)}
           </span>
-          <span className="text-[10px] text-zinc-500">Lifted</span>
+          <span className="text-[10px] text-zinc-500 font-medium">Total lifted</span>
+        </div>
+      </div>
+
+      {/* Exercise Selector for 1RM Progression Chart */}
+      <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3.5 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            Select Lift for Strength Curve:
+          </span>
+          <span className="text-[11px] text-zinc-500 font-mono">
+            {data1RMPoints.length} session{data1RMPoints.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        <select
+          value={selectedExerciseId}
+          onChange={(e) => setSelectedExerciseId(e.target.value)}
+          className="w-full bg-zinc-950 border border-zinc-800 text-sm font-bold text-white rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500 shadow-inner"
+        >
+          {exercises.map((ex) => (
+            <option key={ex.id} value={ex.id}>
+              {ex.name} ({ex.primaryMuscle})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Visual Performance Graph Component */}
+      <ProgressChart
+        data1RM={data1RMPoints}
+        volumeData={volumeData}
+        preferredUnit={preferredUnit}
+        exerciseName={selectedExercise?.name || 'Exercise'}
+      />
+
+      {/* ================= ANATOMICAL MUSCLE ACTIVATION MAP ================= */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-extrabold text-white flex items-center gap-1.5">
+              <Layers className="w-4 h-4 text-emerald-400" />
+              Weekly Muscle Activation Map (7d)
+            </h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Visual anatomical map of target muscle stimulation over the last 7 days
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-zinc-950/80 p-3.5 rounded-xl border border-zinc-800/80 flex flex-col items-center">
+          <MuscleDiagram
+            primaryMuscles={activeStimulatedMuscles.primary}
+            secondaryMuscles={activeStimulatedMuscles.secondary}
+            size="md"
+            showLabels={false}
+          />
+
+          <div className="flex items-center justify-center gap-4 mt-3 text-xs font-semibold">
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-md bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+              <span className="text-zinc-200">Optimal Volume (8+ sets)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-md bg-indigo-500 shadow-sm shadow-indigo-500/50" />
+              <span className="text-zinc-300">Worked (1–7 sets)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-md bg-zinc-800 border border-zinc-700" />
+              <span className="text-zinc-500">Untrained</span>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Weekly Volume Landmarks (Last 7 Days) */}
-      <div className="bg-zinc-900/90 border border-zinc-800/80 p-4 rounded-2xl space-y-3">
+      <div className="bg-zinc-900/90 border border-zinc-800 p-4 rounded-2xl space-y-3 shadow-md">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+            <h3 className="text-base font-extrabold text-white flex items-center gap-1.5">
               <Target className="w-4 h-4 text-emerald-400" />
-              Weekly Hypertrophy Landmarks (7d)
+              Hypertrophy Volume Landmarks (7d)
             </h3>
-            <span className="text-[10px] text-zinc-400 block mt-0.5">
-              10–20 hard sets/week is optimal for muscle growth
+            <span className="text-xs text-zinc-400 block mt-0.5">
+              10–20 hard sets/week is optimal for muscle growth (MAV)
             </span>
           </div>
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
-            Hypertrophy
+            Scientific
           </span>
         </div>
 
-        <div className="space-y-2.5 pt-1">
+        <div className="space-y-3 pt-1">
           {Object.entries(VOLUME_LANDMARKS).map(([muscleKey, target]) => {
             const currentSets = weeklyMuscleVolume[muscleKey] || 0;
             const percent = Math.min(100, Math.round((currentSets / target.mav) * 100));
 
-            // Status color and label
             let statusBadge = (
-              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
                 Below MEV (&lt;{target.mev})
               </span>
             );
@@ -247,14 +361,14 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
 
             if (currentSets >= target.mev && currentSets <= target.mav) {
               statusBadge = (
-                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   Optimal (MAV)
                 </span>
               );
               barColor = 'bg-emerald-500';
             } else if (currentSets > target.mav) {
               statusBadge = (
-                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                   High Volume (MRV)
                 </span>
               );
@@ -262,19 +376,19 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
             }
 
             return (
-              <div key={muscleKey} className="space-y-1">
+              <div key={muscleKey} className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-zinc-200 capitalize">{muscleKey}</span>
-                  <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-white capitalize text-sm">{muscleKey}</span>
+                  <div className="flex items-center gap-2">
                     {statusBadge}
-                    <span className="font-mono font-bold text-white text-xs">
+                    <span className="font-mono font-bold text-white text-xs sm:text-sm">
                       {currentSets} / {target.mav} sets
                     </span>
                   </div>
                 </div>
 
                 {/* Progress Bar */}
-                <div className="w-full h-2 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/80">
+                <div className="w-full h-2.5 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
                   <div
                     className={`h-full ${barColor} rounded-full transition-all duration-500`}
                     style={{ width: `${percent}%` }}
@@ -286,91 +400,9 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
         </div>
       </div>
 
-      {/* 1RM Strength Progression Tracker */}
-      <div className="bg-zinc-900/90 border border-zinc-800/80 p-4 rounded-2xl space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-            <Trophy className="w-4 h-4 text-amber-400" />
-            1RM Strength Tracker
-          </h3>
-
-          <select
-            value={selectedExerciseId}
-            onChange={(e) => setSelectedExerciseId(e.target.value)}
-            className="bg-zinc-950 border border-zinc-800 text-xs text-white rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-emerald-500 font-medium"
-          >
-            {exercises.map((ex) => (
-              <option key={ex.id} value={ex.id}>
-                {ex.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {selectedExercise && (
-          <div className="pt-1 space-y-2">
-            {selectedExerciseHistory.length === 0 ? (
-              <div className="bg-zinc-950/60 border border-dashed border-zinc-800 rounded-xl p-4 text-center text-xs text-zinc-500">
-                No recorded working sets for {selectedExercise.name} yet. Complete a workout to see your 1RM progression curve.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800">
-                  <div>
-                    <span className="text-[10px] text-zinc-500 uppercase block font-semibold">
-                      Current Peak 1RM
-                    </span>
-                    <span className="text-base font-black text-amber-400 font-mono">
-                      {formatWeight(
-                        Math.max(...selectedExerciseHistory.map((h) => h.max1RM)),
-                        preferredUnit,
-                        true
-                      )}
-                    </span>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold uppercase">
-                    Epley 1RM
-                  </span>
-                </div>
-
-                {/* History Session Rows */}
-                <div className="space-y-1.5">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block px-1">
-                    Historical Sessions
-                  </span>
-                  {selectedExerciseHistory.slice(0, 5).map((h, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between p-2 rounded-xl bg-zinc-950/70 border border-zinc-800/80 text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                        <div>
-                          <span className="font-semibold text-white block">{h.date}</span>
-                          <span className="text-[10px] text-zinc-400">
-                            Best set: {toDisplayWeight(h.bestSet.weight, preferredUnit)} {preferredUnit} × {h.bestSet.reps} reps
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="font-bold text-emerald-400 font-mono block">
-                          ~{formatWeight(h.max1RM, preferredUnit, true)}
-                        </span>
-                        <span className="text-[9px] text-zinc-500">Est. 1RM</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* Workout Session History Timeline */}
-      <div className="bg-zinc-900/90 border border-zinc-800/80 p-4 rounded-2xl space-y-3">
-        <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+      <div className="bg-zinc-900/90 border border-zinc-800 p-4 rounded-2xl space-y-3 shadow-md">
+        <h3 className="text-base font-extrabold text-white flex items-center gap-1.5">
           <Calendar className="w-4 h-4 text-emerald-400" />
           Recent Workout Sessions
         </h3>
@@ -389,29 +421,29 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
               return (
                 <div
                   key={session.id}
-                  className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 space-y-1.5"
+                  className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2"
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-white block">
+                      <span className="text-sm font-bold text-white block">
                         {session.notes?.split('-')[0]?.trim() || 'Workout Session'}
                       </span>
-                      <span className="text-[10px] text-zinc-400">{session.date}</span>
+                      <span className="text-xs text-zinc-400">{session.date}</span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-2">
                       {prs > 0 && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
                           {prs} PR{prs > 1 ? 's' : ''}
                         </span>
                       )}
-                      <span className="text-xs font-bold font-mono text-emerald-400">
+                      <span className="text-sm font-black font-mono text-emerald-400">
                         {formatWeight(volumeKg, preferredUnit, true)}
                       </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-[10px] text-zinc-500 border-t border-zinc-900 pt-1">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 border-t border-zinc-900 pt-2 font-medium">
                     <span>{hardSets} hard working sets completed</span>
                     <span>{session.sets.length} total logged sets</span>
                   </div>

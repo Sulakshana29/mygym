@@ -76,7 +76,25 @@ export class LocalStorageAdapter implements StorageAdapter {
     if (!this.isClient()) return INITIAL_EXERCISES;
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.EXERCISES);
-      return raw ? JSON.parse(raw) : INITIAL_EXERCISES;
+      if (!raw) return INITIAL_EXERCISES;
+      const stored: Exercise[] = JSON.parse(raw);
+      const storedIds = new Set(stored.map((e) => e.id));
+      let hasMissing = false;
+
+      // Automatically backfill any new exercises added to INITIAL_EXERCISES
+      for (const initEx of INITIAL_EXERCISES) {
+        if (!storedIds.has(initEx.id)) {
+          stored.push(initEx);
+          storedIds.add(initEx.id);
+          hasMissing = true;
+        }
+      }
+
+      if (hasMissing) {
+        localStorage.setItem(STORAGE_KEYS.EXERCISES, JSON.stringify(stored));
+      }
+
+      return stored;
     } catch {
       return INITIAL_EXERCISES;
     }

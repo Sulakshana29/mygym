@@ -213,12 +213,17 @@ export function ProgramBuilder({
     setNewNotes('');
   };
 
-  // Filter exercises for modal
+  // Filter exercises for modal (smart search across all muscles when query entered)
   const filteredExercises = exercises.filter((ex) => {
+    const query = searchQuery.trim().toLowerCase();
     const matchSearch =
-      ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ex.primaryMuscle.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchMuscle = selectedMuscle === 'all' || ex.primaryMuscle === selectedMuscle;
+      !query ||
+      ex.name.toLowerCase().includes(query) ||
+      ex.primaryMuscle.toLowerCase().includes(query) ||
+      ex.secondaryMuscles.some((m) => m.toLowerCase().includes(query)) ||
+      ex.equipment.toLowerCase().includes(query);
+
+    const matchMuscle = query ? true : (selectedMuscle === 'all' || ex.primaryMuscle === selectedMuscle);
     return matchSearch && matchMuscle;
   });
 
@@ -387,12 +392,12 @@ export function ProgramBuilder({
                         {index + 1}
                       </span>
                       <div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <h4 className="text-sm font-bold text-zinc-100">{ex.name}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-base font-black text-white">{ex.name}</h4>
                           <span
-                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
                               ex.category === 'compound'
-                                ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                                ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/25'
                                 : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                             }`}
                           >
@@ -401,23 +406,23 @@ export function ProgramBuilder({
                         </div>
 
                         {/* Prescription Details */}
-                        <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-300 font-medium">
-                          <span className="text-emerald-400 font-bold">
+                        <div className="flex items-center gap-2.5 mt-1.5 text-xs sm:text-sm text-zinc-300 font-semibold flex-wrap">
+                          <span className="text-emerald-400 font-extrabold">
                             {planned.sets} sets × {planned.repMin}
                             {planned.repMin !== planned.repMax ? `–${planned.repMax}` : ''} reps
                           </span>
                           <span className="text-zinc-600">•</span>
-                          <span className="text-zinc-400">{planned.restSec}s rest</span>
+                          <span className="text-zinc-300">{planned.restSec}s rest</span>
                           {planned.targetRpe && (
                             <>
                               <span className="text-zinc-600">•</span>
-                              <span className="text-zinc-400">RPE {planned.targetRpe}</span>
+                              <span className="text-zinc-300">RPE {planned.targetRpe}</span>
                             </>
                           )}
                         </div>
 
                         {planned.notes && (
-                          <p className="text-[11px] text-zinc-400 mt-1 italic">
+                          <p className="text-xs text-zinc-400 mt-1 italic">
                             {planned.notes}
                           </p>
                         )}
