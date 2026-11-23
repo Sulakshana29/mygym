@@ -21,6 +21,7 @@ import {
   X,
   Layers,
   Clock,
+  Disc,
 } from 'lucide-react';
 import {
   Exercise,
@@ -41,6 +42,7 @@ import {
 import { formatWeight, toDisplayWeight, fromDisplayWeight } from '@/lib/utils/units';
 import { getLocalDateString } from '@/lib/utils/date';
 import { MuscleDiagram } from '../diagrams/MuscleDiagram';
+import { PlateCalculatorModal } from '../tools/PlateCalculatorModal';
 
 interface WorkoutLoggerProps {
   program: Program;
@@ -79,6 +81,11 @@ export function WorkoutLogger({
   const [allTimeMax1RMMap, setAllTimeMax1RMMap] = useState<Record<string, number>>({});
   const [isFinishing, setIsFinishing] = useState(false);
   const [expandedMuscleExId, setExpandedMuscleExId] = useState<string | null>(null);
+  const [plateCalcTarget, setPlateCalcTarget] = useState<{
+    plannedId?: string;
+    setId?: string;
+    weightKg: number;
+  } | null>(null);
   const [finishSummary, setFinishSummary] = useState<{
     totalVolumeKg: number;
     hardSets: number;
@@ -713,19 +720,38 @@ export function WorkoutLogger({
                     )}
                   </div>
 
-                  {/* Muscle Diagram Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() => setExpandedMuscleExId(isMuscleExpanded ? null : planned.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-colors shrink-0 ${
-                      isMuscleExpanded
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700/60'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{isMuscleExpanded ? 'Hide' : 'Muscles'}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Plate Calculator Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentWeight = sets[0]?.weight || 60;
+                        setPlateCalcTarget({
+                          plannedId: planned.id,
+                          weightKg: currentWeight > 0 ? currentWeight : 60,
+                        });
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-colors bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700/60"
+                      title="Calculate Plates"
+                    >
+                      <Disc className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Plates</span>
+                    </button>
+
+                    {/* Muscle Diagram Toggle Button */}
+                    <button
+                      type="button"
+                      onClick={() => setExpandedMuscleExId(isMuscleExpanded ? null : planned.id)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-colors ${
+                        isMuscleExpanded
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
+                          : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700/60'
+                      }`}
+                    >
+                      <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{isMuscleExpanded ? 'Hide' : 'Muscles'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Expandable Muscle Diagram */}
@@ -976,6 +1002,34 @@ export function WorkoutLogger({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Plate Calculator Modal */}
+      {plateCalcTarget && (
+        <PlateCalculatorModal
+          isOpen={!!plateCalcTarget}
+          onClose={() => setPlateCalcTarget(null)}
+          initialWeightKg={plateCalcTarget.weightKg}
+          preferredUnit={preferredUnit}
+          onApplyWeight={(newWeightKg) => {
+            if (plateCalcTarget.setId && plateCalcTarget.plannedId) {
+              handleUpdateSet(plateCalcTarget.plannedId, plateCalcTarget.setId, 'weight', newWeightKg);
+            } else if (plateCalcTarget.plannedId) {
+              setWorkoutSets((prev) => {
+                const existing = prev[plateCalcTarget.plannedId!] || [];
+                const updated = existing.map((s) => {
+                  if (!completedSetIds.has(s.id)) {
+                    const newSet = { ...s, weight: newWeightKg };
+                    newSet.isPR = isSetPR(newSet);
+                    return newSet;
+                  }
+                  return s;
+                });
+                return { ...prev, [plateCalcTarget.plannedId!]: updated };
+              });
+            }
+          }}
+        />
       )}
     </div>
   );
