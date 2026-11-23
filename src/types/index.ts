@@ -96,6 +96,25 @@ export interface WorkoutSession {
   notes?: string;
 }
 
+export interface BodyWeightEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  weightKg: number;
+  note?: string;
+}
+
+export type ReadinessLevel = 'optimal' | 'moderate' | 'fatigued' | 'deload_recommended';
+
+export interface AIReadinessReport {
+  score: number; // 0 - 100
+  level: ReadinessLevel;
+  headline: string;
+  summary: string;
+  actionItems: string[];
+  overtrainingAlerts: string[];
+  analyzedAt: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -104,6 +123,17 @@ export interface UserProfile {
   daysPerWeek: number;
   targetGoal: 'hypertrophy' | 'strength' | 'general_fitness';
   activeProgramId: string;
+  bio?: string;
+  homeGymName?: string;
+  memberId?: string;
+  currentWeightKg?: number;
+  targetWeightKg?: number;
+  heightCm?: number;
+  defaultRestSec?: number;
+  defaultBarWeightKg?: number;
+  restingHeartRateBpm?: number;
+  sleepHours?: number;
+  weightHistory?: BodyWeightEntry[];
 }
 
 export interface DoubleProgressionStatus {

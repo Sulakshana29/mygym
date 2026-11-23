@@ -22,6 +22,10 @@ import {
   Layers,
   Clock,
   Disc,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   Exercise,
@@ -31,6 +35,7 @@ import {
   ProgramDay,
   Unit,
   WorkoutSession,
+  AIReadinessReport,
 } from '@/types';
 import { getStorage } from '@/lib/storage';
 import {
@@ -100,8 +105,62 @@ export function WorkoutLogger({
   // Screen Wake Lock
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
+  // AI Daily Readiness State
+  const [aiReadiness, setAiReadiness] = useState<AIReadinessReport | null>(null);
+  const [isAnalyzingReadiness, setIsAnalyzingReadiness] = useState(false);
+  const [isReadinessExpanded, setIsReadinessExpanded] = useState(false);
+
   // Guard to prevent overwriting saved drafts during initial load
   const isInitializedRef = useRef(false);
+
+  const fetchReadiness = async () => {
+    if (!currentDay || currentDay.isRestDay) return;
+    setIsAnalyzingReadiness(true);
+    try {
+      const storage = getStorage();
+      const [sessions, profile] = await Promise.all([
+        storage.getWorkoutSessions(),
+        storage.getUserProfile(),
+      ]);
+
+      const todayExercises = currentDay.exercises.map((p) => {
+        const ex = exercises.find((e) => e.id === p.exerciseId);
+        return {
+          name: ex?.name || 'Exercise',
+          category: ex?.category || 'compound',
+          primaryMuscle: ex?.primaryMuscle || 'other',
+          sets: p.sets,
+          repRange: `${p.repMin}-${p.repMax}`,
+        };
+      });
+
+      const res = await fetch('/api/coach/readiness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile,
+          recentSessions: sessions.slice(-15),
+          todayDayName: currentDay.name,
+          todayExercises,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAiReadiness(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch AI readiness report:', err);
+    } finally {
+      setIsAnalyzingReadiness(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentDay && !currentDay.isRestDay) {
+      fetchReadiness();
+    }
+  }, [currentDay?.id]);
 
   // Initialize or restore sets for the active day's planned exercises
   useEffect(() => {
@@ -578,6 +637,118 @@ export function WorkoutLogger({
           )}
         </div>
       </div>
+
+      {/* AI Daily Readiness & Overtraining Prevention Card */}
+      {!currentDay.isRestDay && (
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-800/90 rounded-2xl p-4 shadow-lg space-y-3 relative overflow-hidden transition-all">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs font-mono border shadow-md ${
+                  aiReadiness?.level === 'optimal'
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-emerald-500/10'
+                    : aiReadiness?.level === 'moderate'
+                    ? 'bg-blue-500/15 border-blue-500/40 text-blue-400'
+                    : aiReadiness?.level === 'fatigued'
+                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 animate-pulse'
+                    : 'bg-rose-500/15 border-rose-500/40 text-rose-400 animate-pulse'
+                }`}
+              >
+                {isAnalyzingReadiness ? (
+                  <Sparkles className="w-4 h-4 animate-spin text-emerald-400" />
+                ) : (
+                  `${aiReadiness?.score || 90}%`
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-emerald-400" />
+                    AI Coach Readiness
+                  </span>
+                  {aiReadiness?.level === 'fatigued' && (
+                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      FATIGUE ALERT
+                    </span>
+                  )}
+                  {aiReadiness?.level === 'deload_recommended' && (
+                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      DELOAD ADVISED
+                    </span>
+                  )}
+                </div>
+                <h4 className="text-xs sm:text-sm font-extrabold text-white mt-0.5">
+                  {isAnalyzingReadiness
+                    ? 'Analyzing past 14 days of workout fatigue...'
+                    : aiReadiness?.headline || `Prime Readiness for ${currentDay.name}`}
+                </h4>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={fetchReadiness}
+                disabled={isAnalyzingReadiness}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                title="Re-analyze workout history"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isAnalyzingReadiness ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsReadinessExpanded(!isReadinessExpanded)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              >
+                {isReadinessExpanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Expanded AI Insights & Action Items */}
+          {isReadinessExpanded && aiReadiness && (
+            <div className="space-y-2.5 pt-2 border-t border-zinc-800/80 animate-in fade-in duration-150 text-xs">
+              <p className="text-zinc-300 leading-relaxed font-medium">
+                {aiReadiness.summary}
+              </p>
+
+              {/* Overtraining / Injury Warnings */}
+              {aiReadiness.overtrainingAlerts && aiReadiness.overtrainingAlerts.length > 0 && (
+                <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-2.5 space-y-1">
+                  <span className="text-[10px] font-black text-rose-400 uppercase tracking-wider flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    Overtraining / Injury Prevention Flags:
+                  </span>
+                  {aiReadiness.overtrainingAlerts.map((alert, i) => (
+                    <p key={i} className="text-rose-300 text-[11px] font-semibold">
+                      • {alert}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Action Items for Today */}
+              {aiReadiness.actionItems && aiReadiness.actionItems.length > 0 && (
+                <div className="bg-zinc-950/70 border border-zinc-800 rounded-xl p-2.5 space-y-1.5">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                    Today's Tactical Game Plan:
+                  </span>
+                  {aiReadiness.actionItems.map((item, idx) => (
+                    <div key={idx} className="flex items-start gap-1.5 text-zinc-200 text-xs">
+                      <span className="text-emerald-400 font-bold">✓</span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Floating / Embedded Rest Timer (High Visibility) */}
       {timerSecondsLeft !== null && (

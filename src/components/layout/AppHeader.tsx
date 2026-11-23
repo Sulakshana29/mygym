@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Flame, Sparkles, Disc } from 'lucide-react';
+import React from 'react';
+import { Flame, Sparkles } from 'lucide-react';
 import { Unit } from '@/types';
-import { PlateCalculatorModal } from '../tools/PlateCalculatorModal';
 
 interface AppHeaderProps {
   preferredUnit: Unit;
@@ -18,8 +17,6 @@ export function AppHeader({
   onOpenCoach,
   activeProgramName = 'Winter Arc 5-Day',
 }: AppHeaderProps) {
-  const [isPlateCalcOpen, setIsPlateCalcOpen] = useState(false);
-
   return (
     <header className="sticky top-0 z-30 bg-zinc-950/85 backdrop-blur-xl border-b border-zinc-800/70 px-4 py-2.5 flex items-center justify-between shadow-lg shadow-black/30">
       <div className="flex items-center gap-2.5">
@@ -39,17 +36,7 @@ export function AppHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 sm:gap-2">
-        {/* Plate Calculator Quick Trigger */}
-        <button
-          onClick={() => setIsPlateCalcOpen(true)}
-          className="flex items-center gap-1 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 shadow-sm"
-          title="Open Barbell Plate Calculator"
-        >
-          <Disc className="w-3.5 h-3.5 text-blue-400" />
-          <span className="hidden sm:inline">Plates</span>
-        </button>
-
+      <div className="flex items-center gap-2">
         {/* AI Coach Trigger Button */}
         <button
           onClick={onOpenCoach}
@@ -75,16 +62,6 @@ export function AppHeader({
           </span>
         </button>
       </div>
-
-      {/* Standalone Plate Calculator Modal */}
-      {isPlateCalcOpen && (
-        <PlateCalculatorModal
-          isOpen={isPlateCalcOpen}
-          onClose={() => setIsPlateCalcOpen(false)}
-          preferredUnit={preferredUnit}
-          initialWeightKg={60}
-        />
-      )}
     </header>
   );
 }
