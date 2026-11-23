@@ -89,6 +89,9 @@ export interface WorkoutSession {
   date: string; // YYYY-MM-DD
   startTime: string;
   endTime?: string;
+  durationMinutes?: number; // derived from startedAt/finishedAt
+  startedAt?: string; // ISO timestamp when first set was logged
+  finishedAt?: string; // ISO timestamp when "Finish" was pressed
   sets: LoggedSet[];
   notes?: string;
 }

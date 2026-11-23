@@ -20,6 +20,7 @@ import {
   History,
   X,
   Layers,
+  Clock,
 } from 'lucide-react';
 import {
   Exercise,
@@ -82,7 +83,15 @@ export function WorkoutLogger({
     totalVolumeKg: number;
     hardSets: number;
     prsHit: number;
+    durationMinutes: number;
   } | null>(null);
+
+  // Workout elapsed timer
+  const [workoutStartedAt, setWorkoutStartedAt] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Screen Wake Lock
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Guard to prevent overwriting saved drafts during initial load
   const isInitializedRef = useRef(false);
@@ -125,6 +134,7 @@ export function WorkoutLogger({
           if (parsed.sets && Object.keys(parsed.sets).length > 0) {
             setWorkoutSets(parsed.sets);
             setCompletedSetIds(new Set(parsed.completedSetIds || []));
+            if (parsed.startedAt) setWorkoutStartedAt(parsed.startedAt);
             setIsDraftRestored(true);
             restoredFromDraft = true;
           }
@@ -250,6 +260,49 @@ export function WorkoutLogger({
     };
   }, [isTimerRunning, timerSecondsLeft]);
 
+  // Elapsed workout timer
+  useEffect(() => {
+    if (!workoutStartedAt) return;
+    const interval = setInterval(() => {
+      const start = new Date(workoutStartedAt).getTime();
+      setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [workoutStartedAt]);
+
+  // Screen Wake Lock — keep screen on during active workout
+  useEffect(() => {
+    if (!workoutStartedAt) return;
+    const requestWakeLock = async () => {
+      if (typeof window !== 'undefined' && 'wakeLock' in navigator) {
+        try {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        } catch {
+          // Wake lock not supported or denied — silent fail
+        }
+      }
+    };
+    requestWakeLock();
+    return () => {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+    };
+  }, [workoutStartedAt]);
+
+  // Elapsed time formatter
+  const formatElapsed = (totalSec: number) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    if (mins < 60) {
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `${hrs}h ${remMins}m`;
+  };
+
   const startRestTimer = (seconds: number) => {
     setTimerTotal(seconds);
     setTimerSecondsLeft(seconds);
@@ -299,6 +352,17 @@ export function WorkoutLogger({
     } else {
       nextCompleted.add(set.id);
       startRestTimer(planned.restSec);
+      // Start the workout elapsed timer on the very first set logged
+      if (!workoutStartedAt) {
+        const now = new Date().toISOString();
+        setWorkoutStartedAt(now);
+        // Persist startedAt in draft so it survives page reloads
+        try {
+          const draftKey = `mygym_draft_${currentDay.id}`;
+          const existing = JSON.parse(localStorage.getItem(draftKey) || '{}');
+          localStorage.setItem(draftKey, JSON.stringify({ ...existing, startedAt: now }));
+        } catch { /* ignore */ }
+      }
     }
     setCompletedSetIds(nextCompleted);
   };
@@ -363,13 +427,21 @@ export function WorkoutLogger({
     const totalVolumeKg = calculateWorkingVolumeLoad(allSets);
     const prsHit = allSets.filter((s) => s.isPR).length;
 
+    const finishedAt = new Date().toISOString();
+    const durationMinutes = workoutStartedAt
+      ? Math.round((new Date(finishedAt).getTime() - new Date(workoutStartedAt).getTime()) / 60000)
+      : 0;
+
     const session: WorkoutSession = {
       id: `session-${Date.now()}`,
       programId: program.id,
       programDayId: currentDay.id,
       date: getLocalDateString(), // Accurate local timezone YYYY-MM-DD
-      startTime: new Date().toISOString(),
-      endTime: new Date().toISOString(),
+      startTime: workoutStartedAt || finishedAt,
+      endTime: finishedAt,
+      startedAt: workoutStartedAt || finishedAt,
+      finishedAt,
+      durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
       sets: allSets,
       notes: `${currentDay.name} - Finished with ${hardSets} hard sets.`,
     };
@@ -387,6 +459,7 @@ export function WorkoutLogger({
       totalVolumeKg,
       hardSets,
       prsHit,
+      durationMinutes,
     });
     setIsFinishing(true);
   };
@@ -442,6 +515,32 @@ export function WorkoutLogger({
                 {currentDay.isRestDay ? 'Rest & Rebuild' : 'Live Workout'}
               </span>
               <span className="text-xs text-zinc-400">{program.name}</span>
+              {/* Workout Duration Live Counter */}
+              {!currentDay.isRestDay && workoutStartedAt && (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 font-mono animate-pulse shadow-sm">
+                  <Clock className="w-3 h-3 text-emerald-400" />
+                  {formatElapsed(elapsedSeconds)}
+                </span>
+              )}
+              {!currentDay.isRestDay && !workoutStartedAt && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date().toISOString();
+                    setWorkoutStartedAt(now);
+                    try {
+                      const draftKey = `mygym_draft_${currentDay.id}`;
+                      const existing = JSON.parse(localStorage.getItem(draftKey) || '{}');
+                      localStorage.setItem(draftKey, JSON.stringify({ ...existing, startedAt: now }));
+                    } catch { /* ignore */ }
+                  }}
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/60 flex items-center gap-1 transition-colors"
+                  title="Start session timer"
+                >
+                  <Clock className="w-3 h-3 text-emerald-400" />
+                  Start Timer
+                </button>
+              )}
               {isDraftRestored && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
                   Draft Restored
@@ -821,30 +920,49 @@ export function WorkoutLogger({
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-2 text-left">
-              <div className="bg-zinc-950 p-3 rounded-2xl border border-zinc-800">
+            <div className="grid grid-cols-3 gap-2 pt-2 text-left">
+              <div className="bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800">
                 <span className="text-[10px] font-semibold text-zinc-500 uppercase block">
-                  Hard Working Sets
+                  Duration
                 </span>
-                <span className="text-lg font-bold text-white">
-                  {finishSummary.hardSets} sets
+                <span className="text-base font-black text-emerald-400 flex items-center gap-1 mt-0.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  {finishSummary.durationMinutes > 0 ? `${finishSummary.durationMinutes}m` : '<1m'}
                 </span>
-                <span className="text-[10px] text-zinc-500 block">
-                  (warmups excluded)
+                <span className="text-[9px] text-zinc-500 block mt-0.5">
+                  Active time
                 </span>
               </div>
-              <div className="bg-zinc-950 p-3 rounded-2xl border border-zinc-800">
+              <div className="bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800">
                 <span className="text-[10px] font-semibold text-zinc-500 uppercase block">
-                  Volume Load
+                  Hard Sets
                 </span>
-                <span className="text-lg font-bold text-emerald-400">
+                <span className="text-base font-black text-white mt-0.5 block">
+                  {finishSummary.hardSets}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">
+                  Work sets
+                </span>
+              </div>
+              <div className="bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase block">
+                  Volume
+                </span>
+                <span className="text-base font-black text-white truncate mt-0.5 block">
                   {formatWeight(finishSummary.totalVolumeKg, preferredUnit, true)}
                 </span>
-                <span className="text-[10px] text-zinc-500 block">
-                  Working tonnage
+                <span className="text-[9px] text-zinc-500 block mt-0.5">
+                  Tonnage
                 </span>
               </div>
             </div>
+
+            {finishSummary.prsHit > 0 && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-2.5 flex items-center justify-center gap-2 text-amber-300 text-xs font-bold animate-pulse">
+                <Trophy className="w-4 h-4 text-amber-400" />
+                <span>{finishSummary.prsHit} New Personal Record{finishSummary.prsHit > 1 ? 's' : ''} Hit!</span>
+              </div>
+            )}
 
             <button
               onClick={() => {

@@ -14,6 +14,7 @@ import {
   Info,
   Activity,
   Layers,
+  Clock,
 } from 'lucide-react';
 import { Exercise, Unit, WorkoutSession, LoggedSet, MuscleGroup } from '@/types';
 import { getStorage } from '@/lib/storage';
@@ -140,18 +141,29 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
     let totalHardSets = 0;
     let totalVolumeKg = 0;
     let totalPRs = 0;
+    let totalMinutes = 0;
+    let sessionsWithDuration = 0;
 
     sessions.forEach((s) => {
       totalHardSets += calculateHardSetVolume(s.sets);
       totalVolumeKg += calculateWorkingVolumeLoad(s.sets);
       totalPRs += s.sets.filter((st) => st.isPR).length;
+      const duration = s.durationMinutes || (s.startedAt && s.finishedAt ? Math.round((new Date(s.finishedAt).getTime() - new Date(s.startedAt).getTime()) / 60000) : 0);
+      if (duration > 0) {
+        totalMinutes += duration;
+        sessionsWithDuration++;
+      }
     });
+
+    const avgDuration = sessionsWithDuration > 0 ? Math.round(totalMinutes / sessionsWithDuration) : 0;
 
     return {
       workoutCount: sessions.length,
       totalHardSets,
       totalVolumeKg,
       totalPRs,
+      avgDuration,
+      totalMinutes,
     };
   }, [sessions]);
 
@@ -226,8 +238,8 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
       </div>
 
       {/* Career Overview Stats */}
-      <div className="grid grid-cols-3 gap-2.5">
-        <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-2xl shadow-sm">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800/90 p-3.5 rounded-2xl shadow-sm">
           <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
             Workouts
           </span>
@@ -237,21 +249,31 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
           <span className="text-[10px] text-zinc-500 font-medium">Logged</span>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-2xl shadow-sm">
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800/90 p-3.5 rounded-2xl shadow-sm">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
+            Avg Duration
+          </span>
+          <span className="text-xl sm:text-2xl font-black text-emerald-400 mt-1 block font-mono">
+            {careerStats.avgDuration > 0 ? `${careerStats.avgDuration}m` : '—'}
+          </span>
+          <span className="text-[10px] text-zinc-500 font-medium">Per workout</span>
+        </div>
+
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800/90 p-3.5 rounded-2xl shadow-sm">
           <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
             Hard Sets
           </span>
-          <span className="text-xl sm:text-2xl font-black text-emerald-400 mt-1 block font-mono">
+          <span className="text-xl sm:text-2xl font-black text-cyan-400 mt-1 block font-mono">
             {careerStats.totalHardSets}
           </span>
           <span className="text-[10px] text-zinc-500 font-medium">Working sets</span>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-2xl shadow-sm">
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800/90 p-3.5 rounded-2xl shadow-sm">
           <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">
             Tonnage
           </span>
-          <span className="text-xl sm:text-2xl font-black text-amber-400 mt-1 block font-mono">
+          <span className="text-xl sm:text-2xl font-black text-amber-400 mt-1 block font-mono truncate">
             {formatWeight(careerStats.totalVolumeKg, preferredUnit, true)}
           </span>
           <span className="text-[10px] text-zinc-500 font-medium">Total lifted</span>
@@ -417,18 +439,30 @@ export function ProgressDashboard({ exercises, preferredUnit }: ProgressDashboar
               const hardSets = calculateHardSetVolume(session.sets);
               const volumeKg = calculateWorkingVolumeLoad(session.sets);
               const prs = session.sets.filter((s) => s.isPR).length;
+              const durationMin = session.durationMinutes || (session.startedAt && session.finishedAt ? Math.round((new Date(session.finishedAt).getTime() - new Date(session.startedAt).getTime()) / 60000) : 0);
 
               return (
                 <div
                   key={session.id}
-                  className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2"
+                  className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2 hover:border-zinc-700/80 transition-colors"
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="text-sm font-bold text-white block">
                         {session.notes?.split('-')[0]?.trim() || 'Workout Session'}
                       </span>
-                      <span className="text-xs text-zinc-400">{session.date}</span>
+                      <div className="flex items-center gap-2 text-xs text-zinc-400 mt-0.5">
+                        <span>{session.date}</span>
+                        {durationMin > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1 font-mono">
+                              <Clock className="w-3 h-3 text-emerald-400" />
+                              {durationMin} min
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
